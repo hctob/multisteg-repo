@@ -52,7 +52,7 @@ fn main() {
                                                //let dir = std::path::Path::new(decode_directory);
                                                //assert!(std::env::set_current_dir(&dir).is_ok());
                                                //println!("Successfully set working directory to {:?}", dir.display());
-            let mut ret: String = String::new();
+            let mut ret: Vec<String> = Vec::new();
             //iterate through each picture in the directory
             for file in std::fs::read_dir(decode_directory)
                 .expect("Error: could not iterate through directory contents")
@@ -72,12 +72,14 @@ fn main() {
                     continue;
                 } else {
                     //for each valid PPM file
+                    println!("{} is valid", file_name);
                     let valid_header = valid_header as usize;
                     let data_bytes: Vec<u8> = file_bytes[valid_header..].to_vec();
-                    ret = multisteglib::decode_message(&data_bytes).unwrap();
+                    ret.push(multisteglib::decode_message(&data_bytes).unwrap());
+                    println!("Decoded chunk");
                 }
             }
-            println!("{}", ret);
+            println!("{:?}", ret.join(""));
         }
         4 => {
             println!("Four arguments");
@@ -97,12 +99,21 @@ fn main() {
                 .metadata()
                 .expect("Error: could not find path to specified directory");
             assert!(directory_check2.is_dir());
+            //let output_dir = directory_check2.to_str().unwrap();
+
 
             let valid = multisteglib::enumerate_ppm(encode_directory.to_string()); //TODO: finish
-            let valid_num = valid.len();
-            for i in 0..valid_num {
-                println!("{}: {:#?}", i , valid.get(&i).unwrap());
+            //println!("didn't break");
+            let mut valid_files: Vec<String> = Vec::new();
+            //println!("valid_files size: {}", valid_files.len());
+            for i in 0..valid.len() {
+                valid_files.push(valid.get(&i).unwrap().to_string());
+                println!("File #{}. {}", i, valid_files[i]);
             }
+            let valid_num = valid.len();
+            /*for i in 0..valid_num {
+                println!("{}: {:#?}", i , valid.get(&i).unwrap());
+            }*/
             /*let mut valid_num: u32 = 0;
             for file in std::fs::read_dir(encode_directory).expect("Error: could not iterate through directory contents") {
                 let dir = file.expect("Error: could not check file path");
@@ -125,8 +136,13 @@ fn main() {
                 .collect::<Result<Vec<&str>, _>>()
                 .unwrap();
             //message_chunks.push()
+            let mut message_chunks_owned: Vec<String> = Vec::new();
+            //println!("message_chunks_owned size: {}", message_chunks_owned.len());
+            for i in 0..message_chunks.len() {
+                message_chunks_owned.push(String::from(message_chunks[i]));
+            }
 
-            println!("{:?}", message_chunks);
+            //println!("{:?}", message_chunks_owned);
             //let mut message_chunks_bytes: Vec<u8> = vec![message.as_bytes().chunks(valid_num) as u8];//.collect().unwrap();
             /*let _encoded = message.as_bytes();
             let mut encoded: Vec<u8> = vec![0u8; 0];
@@ -136,7 +152,7 @@ fn main() {
             //println!("{}", encoded.len());
             //encoded.push(NULL_BYTE);
 
-            let mut message_chunks_bytes = vec![];
+            /*let mut message_chunks_bytes = vec![];
             /*for chunk in message_chunks {
                 message_chunks_bytes.push(chunk.as_butes());
                 //message_chunks_bytes[]
@@ -146,66 +162,62 @@ fn main() {
                 chunk.push(NULL_BYTE);
                 message_chunks_bytes.push(chunk);
             }
-            println!("{:?}", message_chunks_bytes);
+            println!("{:?}", message_chunks_bytes);*/
             //:todo threading
             //https://blog.softwaremill.com/multithreading-in-rust-with-mpsc-multi-producer-single-consumer-channels-db0fc91ae3fa
-            let mut handles = vec![];
+            let mut handles = Vec::new();
             //let _suffix = Arc::new(AtomicUsize::new(0));
             let _suffix = Arc::new(Mutex::new(0));
+            //let paths_arr = [String; ];
+            let mut output = String::new();
+            output.push_str(output_directory);
+            output.push('/');
+            output.push_str("output_");
+            let locked_output = Arc::new(String::from(output));
+
             //let (sender, receiver) = mpsc::channel();
             let jobs_num = message_chunks.len() / _threads as usize;
-            let job_remainder = message_chunks.len() % _threads as usize;
+            let mut job_remainder = message_chunks.len() as usize;
             for i in 0.._threads {
                 //each thread needs to do a batch for encoding
                 let counter = Arc::clone(&_suffix);
+                let output = Arc::clone(&locked_output);
                 let start = i as usize * jobs_num;
+                let valid_files = valid_files.to_vec();
+                let message_chunks_new = message_chunks_owned.to_vec();
                 let handle = thread::spawn(move || {
                     //let mut shared_data = counter.lock().unwrap();
-                    for j in start..start + jobs_num {
+                    for j in start..start + jobs_num + job_remainder as usize % _threads as usize {
                         let mut shared_data = counter.lock().unwrap();
+                        if *shared_data == message_chunks_new.len() {
+                            break;
+                        }
                         //encode chunk
                         let index = *shared_data as usize % valid_num;
+                        //output.push_str(output_directory.clone());
+                        //output.push_str(output_directory);
+                        let mut new_output: String = output.clone().to_string();
+                        //new_output.push(char::from(*shared_data as u8));
+                        //new_output.push_str((*shared_data).to_string().as_str());
+                        new_output.push_str(multisteglib::to_signed_hex(*shared_data).as_str());
+                        new_output.push_str(".ppm");
+                        //println!("{}", new_output);
+                        //let mut new_output = String::from(*output.clone());
+                        //new_output.push_str(&*shared_data.to_string());
+                        //output.push_str(String::from(*shared_data.to_str()));
+
                         //let _valid = valid.clone();
-                        let file_bytes: Vec<u8> =
-                        multisteglib::read_byte_by_byte(valid.get(&index).unwrap()).unwrap();
+                        //println!("File: {}", valid_files[index]);
+                        let mut file_bytes: Vec<u8> =
+                        multisteglib::read_byte_by_byte(valid_files[index].as_str()).unwrap();
                         let valid_header = multisteglib::validate_header(&file_bytes);
                         let valid_header = valid_header as usize;
-                        let mut data_bytes: Vec<u8> = file_bytes[valid_header..].to_vec();
-
-                        let mut i = 0;
-                        let encoded: Vec<u8> = message_chunks_bytes[*shared_data].iter().cloned().collect();
-                        loop {
-                            if i == encoded.len() { break };
-                            //println!("Iteration {}", i);
-                            //println!("{:b}", encoded[i]);
-                            for j in 0..8 {
-                                //skip zero as there is no ascii in that range - nevermind lol
-                                //let mask = 0b10000000 >> j;
-                                /*let val = match encoded[i] & mask {
-                                    0 => {
-                                        0b00000000
-                                    },
-                                    _ => {
-                                        0b00000001
-                                    }
-                                };*/
-                                //println!("val={}", val);
-                                let mut val = encoded[i] >> (7 - j);
-                                val &= 1;
-                                let index = (8 * i) + j;
-                                let data = data_bytes[index] & !1; //remove least signifcant bit
-                                data_bytes[index] = data | val;
-                            }
-                            i += 1;
-                        }
-                        let mut stdout = io::stdout();
-                        //file_bytes.push(0xa); //add new line in order to pass diff check
-                        //let file_b: Vec<u8> = file_bytes;
-                        let _len: usize = file_bytes.len();
-                        //file_bytes.push(0x0a); //newline character
-                        stdout.write_all(&file_bytes[0.._len + 1]).expect("Error: could not write PPM to stdout");
+                        //let msg = String::from(message_chunks[index]);
+                        let msg = &message_chunks_new[*shared_data];
+                        multisteglib::encode_message(String::from(msg), &mut file_bytes, valid_header, new_output);
                         println!("Thread #{} encoded chunk #{}", i, *shared_data);
                         *shared_data += 1;
+                        job_remainder -= 1;
                     }
                 });
                 handles.push(handle);
@@ -214,39 +226,6 @@ fn main() {
             for handle in handles {
                 handle.join().unwrap();
             }
-
-
-            //TODO: parallelization of the image encoding - for each string chunk, encode into images in input directory in round robin fashion.
-            let mut ret: String = String::new();
-            //iterate through each picture in the directory
-            let mut count = 0;
-            /*for file in std::fs::read_dir(encode_directory)
-                .expect("Error: could not iterate through directory contents")
-            {
-                let dir = file.expect("Error: could not check file path");
-                //println!("{:?}", dir.path());
-                let file_path = dir.path();
-                assert!(file_path.is_file()); //assert that file is a file
-                let file_name: &str = file_path.file_name().unwrap().to_str().unwrap();
-
-                //println!("{}", file_name);
-                let file_bytes: Vec<u8> =
-                    multisteglib::read_byte_by_byte(file_path.to_str().unwrap()).unwrap();
-                let valid_header = multisteglib::validate_header(&file_bytes);
-                if valid_header == -1 {
-                    eprintln!("Skipped invalid PPM at {:?}", dir.path());
-                    continue;
-                } else {
-                    //for each valid PPM file
-                    let valid_header = valid_header as usize;
-                    let data_bytes: Vec<u8> = file_bytes[valid_header..].to_vec();
-
-                    //ret = multisteglib::decode_message(&data_bytes).unwrap();
-                    count += 1;
-                    _suffix += 1;
-                }
-            }*/
-            println!("{}", ret);
         }
         _ => {
             eprintln!("Usage: \nDecoding: cargo run <threads> <directory>\nEncoding: cargo run <threads> <message file> <input image directory> <output directory>");
